@@ -52,10 +52,12 @@ table(split3)
 train3 <- head(tsdata, 1772)
 test3 <- tail(tsdata, 197)
 ```
-train_names <- c('train1', 'train2', 'train3')
-test_names <- c('test1', 'test2', 'test3')
 
 #Step 3 fit the models of Naive, sNaive, ESX, HW
+
+train_names <- c('train1', 'train2', 'train3')
+test_names <- c('test1', 'test2', 'test3')
+variables <- colnames(train1)
 
 # Naive
 
