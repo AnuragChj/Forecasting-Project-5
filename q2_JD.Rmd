@@ -1,0 +1,120 @@
+---
+title: "q2_JD"
+output: html_document
+---
+```{r setup}
+library(readr)
+library(forecast)
+library(xts)
+getwd()
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(ggplot2)
+library(ranger)
+library(ftsa)
+```
+#Step 1 read the csv datasets files
+```{r}
+data = read.csv("Projectdata.csv")
+```
+
+
+```{r}
+tsdata <- xts(data[,2:19], as.Date(data$date))
+tsdata
+```
+```
+
+#Step 2 perform training and testing data split
+split: 70-30
+```{r} 
+split1<- sample(c(rep(0, 0.7 * nrow(tsdata)), rep(1, 0.3 * nrow(tsdata))))
+table(split1) 
+train1 <- tsdata[split1 == 0, ]   
+test1 <- tsdata[split1== 1, ]
+test1
+```
+
+split: 80-20
+```{r}
+split2<- sample(c(rep(0, 0.8 * nrow(data)), rep(1, 0.2 * nrow(data))))
+table(split2) 
+train2 <- data[split2 == 0, ]   
+test2 <- data[split2== 1, ]
+```
+
+split: 90-10
+```{r}
+split3<- sample(c(rep(0, 0.9 * nrow(data)), rep(1, 0.1 * nrow(data))))
+table(split3) 
+train3 <- tsdata[split3 == 0, ]   
+test3 <- tsdata[split3== 1, ]
+```
+
+#Step 3 fit the models of ESX, HW
+#try with 1 split and 1 variable forecast first
+```{r}
+
+
+
+```
+
+
+#3.1 ESX
+```{r}
+## Holt-Winters
+```
+
+```
+
+#3.2 HW
+```{r}
+## Holt-Winters
+#a. fit the models
+tsdata1 <- train1[,0:1]
+hw1 <- HoltWinters(tsdata1, gamma = FALSE)
+hw1$SSE
+```
+```{r}
+#c. one step ahead
+tsdata2 <- test1[,1]
+hw1_p <- forecast(hw1, h=1)
+```
+```{r}
+#d. loss function
+hwmse <- (hw1_p$mean - as.numeric(test1[1,1]))^2 #mse
+hwmae <- abs(hw1_p$mean - as.numeric(test1[1,1])) #mae
+```
+```{r}
+#f. test and train comparison
+hw1_test <- HoltWinters(tsdata1,  alpha = 0.215355, beta = 0.112057, seasonal = "additive" , gamma = FALSE)
+plot(hw1_test)
+hw1_test$SSE
+```
+
+#3 h = 1-28
+```{r}
+for (i in 1:28){
+  hw1_p <- forecast(hw1, h=i)
+} 
+
+```
+
+
+```{r}
+#rmsse functions 
+ibrary(Metrics)
+rmse_num=rmse(test$Hobbies_CA_1, test$y_hat)
+
+rmsse_denom=1/((nrow(test)-1))*sum(diff((test$Hobbies_CA_1))^2) %>% sqrt()##hh to make sure that starts form t=2
+
+rmse_num/rmsse_denom #final value
+
+```
+
+```{r}
+
+```
+
