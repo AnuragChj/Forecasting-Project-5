@@ -32,8 +32,8 @@ split: 70-30
 ```{r} 
 split1<- sample(c(rep(0, 0.7 * nrow(tsdata)), rep(1, 0.3 * nrow(tsdata))))
 table(split1) 
-train1 <- tsdata[split1 == 0, ]   
-test1 <- tsdata[split1== 1, ]
+train1 <- head(tsdata, 1378)
+test1 <- tail(tsdata, 591)
 test1
 ```
 
@@ -41,16 +41,16 @@ split: 80-20
 ```{r}
 split2<- sample(c(rep(0, 0.8 * nrow(data)), rep(1, 0.2 * nrow(data))))
 table(split2) 
-train2 <- data[split2 == 0, ]   
-test2 <- data[split2== 1, ]
+train2 <- head(tsdata, 1575)
+test2 <- tail(tsdata, 394)
 ```
 
 split: 90-10
 ```{r}
 split3<- sample(c(rep(0, 0.9 * nrow(data)), rep(1, 0.1 * nrow(data))))
 table(split3) 
-train3 <- tsdata[split3 == 0, ]   
-test3 <- tsdata[split3== 1, ]
+train3 <- head(tsdata, 1772)
+test3 <- tail(tsdata, 197)
 ```
 
 #Step 3 fit the models of ESX, HW
