@@ -57,3 +57,32 @@ for (i in 1:length(train_names)){
   }
 }
 
+
+# ES
+
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    for (k in h){
+      esf <- ses(get(paste0("train",i))[,n],h=k)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,n]))
+      print(paste0('horizon is',k))
+      print(summary(esf))
+    }
+  }
+}
+
+
+# MA
+
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    for (k in h){
+      maf = forecast(ma(get(paste0("train",i))[,n], order = 15), h=k )
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,n]))
+      print(paste0('horizon is',k))
+      print(summary(maf))
+    }
+  }
+}
