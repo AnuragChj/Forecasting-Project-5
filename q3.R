@@ -102,3 +102,16 @@ for (i in 1:length(train_names)){
     }
   }
 }
+
+#SARIMAX
+
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    for (k in h){
+      sarimax<-forecast(auto.arima(tsdata$Hobbies_CA_1, xreg =tstemp$Air.min,seasonal = TRUE),xreg =tstemp$Air.min,h=1)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,n]))
+      print(paste0('horizon is',k))
+      print(summary(sarima))
+    }
+  }
