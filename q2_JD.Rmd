@@ -103,6 +103,18 @@ for (i in 1:length(train_names)){
   }
 }
 
+
+#SARIMA
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    sarima<-forecast(auto.arima(get(paste0("train",i))[,n],D=1,seasonal=TRUE), h=1)
+    print(paste0("train",i))
+    print(colnames(get(paste0("train",i))[,n]))
+    print(summary(sarima))
+  }
+}
+
+
 #try with 1 split and 1 variable forecast first
 ```{r}
 
