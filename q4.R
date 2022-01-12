@@ -50,8 +50,8 @@ split: 90-10
 ```{r}
 split3<- sample(c(rep(0, 0.9 * nrow(data)), rep(1, 0.1 * nrow(data))))
 table(split3) 
-train2 <- head(tsdata, 1772)
-test2 <- tail(tsdata, 197)
+train3 <- head(tsdata, 1772)
+test3 <- tail(tsdata, 197)
 ```
 
 # Aggregation by type of item
