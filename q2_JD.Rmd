@@ -114,6 +114,21 @@ for (i in 1:length(train_names)){
   }
 }
 
+#SARIMAX
+
+Tempdata <- read.csv("D:\\T1\\Forecasting\\California_temp_max_min.csv")
+tstemp <- xts(Tempdata[,2:3],as.Date(Projectdata$ï..date))
+
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    sarimax<-forecast(auto.arima(tsdata$Hobbies_CA_1, xreg =tstemp$Air.min,seasonal = TRUE),xreg =tstemp$Air.min,h=1)
+    print(paste0("train",i))
+    print(colnames(get(paste0("train",i))[,n]))
+    print(summary(sarima))
+  }
+} 
+
+
 
 #try with 1 split and 1 variable forecast first
 ```{r}
