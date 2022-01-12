@@ -86,3 +86,19 @@ for (i in 1:length(train_names)){
     }
   }
 }
+
+
+#SARIMA
+
+
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    for (k in h){
+      sarima<-forecast(auto.arima(get(paste0("train",i))[,n],D=1,seasonal=TRUE), h=k)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,n]))
+      print(paste0('horizon is',k))
+      print(summary(sarima))
+    }
+  }
+}
