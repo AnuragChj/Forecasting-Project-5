@@ -28,6 +28,17 @@ variables <- colnames(train1)
 
 h = seq(1:28)  # the horizons
 
+#rmsse function
+rmsseerror  <- function(m,i,k,n){
+  result <- data.frame(m)
+  actual <- data.frame(get(paste0("test",i))[1:k,n])
+  rmsse_1=rmse(actual[,1],result$Point.Forecast)
+  rmsse_2=1/((nrow(actual)-1))*sum(diff((actual[,1]))^2) %>% sqrt()#
+  rmsse <- rmsse_1/rmsse_2 #final value  
+  return(rmsse)
+}
+
+
 
 # Naive
 
@@ -39,6 +50,9 @@ for (i in 1:length(train_names)){
       print(colnames(get(paste0("train",i))[,n]))
       print(paste0('horizon is',k))
       print(summary(naivef))
+      rmsse <- rmsseerror(hw,i,k,n) 
+      print(paste0("RMSSE is ", rmsse))
+   
     }
   }
 }
@@ -54,6 +68,9 @@ for (i in 1:length(train_names)){
       print(colnames(get(paste0("train",i))[,n]))
       print(paste0('horizon is',k))
       print(summary(naivef))
+      rmsse <- rmsseerror(hw,i,k,n) 
+      print(paste0("RMSSE is ", rmsse))
+   
     }
   }
 }
@@ -69,6 +86,9 @@ for (i in 1:length(train_names)){
       print(colnames(get(paste0("train",i))[,n]))
       print(paste0('horizon is',k))
       print(summary(esf))
+      rmsse <- rmsseerror(hw,i,k,n) 
+      print(paste0("RMSSE is ", rmsse))
+   
     }
   }
 }
@@ -84,6 +104,9 @@ for (i in 1:length(train_names)){
       print(colnames(get(paste0("train",i))[,n]))
       print(paste0('horizon is',k))
       print(summary(maf))
+      rmsse <- rmsseerror(hw,i,k,n) 
+      print(paste0("RMSSE is ", rmsse))
+   
     }
   }
 }
@@ -100,6 +123,8 @@ for (i in 1:length(train_names)){
       print(colnames(get(paste0("train",i))[,n]))
       print(paste0('horizon is',k))
       print(summary(sarima))
+      rmsse <- rmsseerror(hw,i,k,n) 
+      print(paste0("RMSSE is ", rmsse))
     }
   }
 }
@@ -114,26 +139,31 @@ for (i in 1:length(train_names)){
       print(colnames(get(paste0("train",i))[,n]))
       print(paste0('horizon is',k))
       print(summary(sarima))
+      rmsse <- rmsseerror(hw,i,k,n) 
+      print(paste0("RMSSE is ", rmsse))
     }
   }
   
   
     
-  #Holt winters
+#Holt winters
   
   
   for (i in 1:length(train_names)){
     for (n in 1:length(variables)){
       for (k in h){
         hw<-forecast(HoltWinters(get(paste0("train",i))[,n],gamma = FALSE), h=k)
+        rmsse <- rmsseerror(hw,i,k,n)  
         print(paste0("train",i))
         print(colnames(get(paste0("train",i))[,n]))
         print(paste0('horizon is',k))
-        print(summary(sarima))
-        
+        print(summary(hw))
+        print(paste0("RMSSE is ", rmsse))
+         
       }
     }
   }
-
+  
+  
   
   
