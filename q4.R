@@ -184,6 +184,24 @@ for (i in 1:length(train_names)){
 }
 
 
+  
+  #Holt winters
+  
+  
+  for (i in 1:length(train_names)){
+    for (n in 1:length(variables)){
+      for (k in h){
+        hw<-forecast(HoltWinters(get(paste0("train",i))[,n],gamma = FALSE), h=k)
+        print(paste0("train",i))
+        print(colnames(get(paste0("train",i))[,n]))
+        print(paste0('horizon is',k))
+        print(summary(sarima))
+        
+      }
+    }
+  }
+
+
 
 # Aggregation at Store level
 
@@ -295,4 +313,20 @@ for (i in 1:length(train_names)){
 }
 
 
+  
+  #Holt winters
+  
+  
+  for (i in 1:length(train_names)){
+    for (n in 1:length(variables)){
+      for (k in h){
+        hw<-forecast(HoltWinters(get(paste0("train",i))[,n],gamma = FALSE), h=k)
+        print(paste0("train",i))
+        print(colnames(get(paste0("train",i))[,n]))
+        print(paste0('horizon is',k))
+        print(summary(sarima))
+        
+      }
+    }
+  }
 
