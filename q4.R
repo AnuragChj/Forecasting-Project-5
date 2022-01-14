@@ -116,7 +116,7 @@ for (i in 1:length(train_names)){
 
 for (i in 1:length(train_names)){
     for (k in h){
-      snaivef <- snaive(get(paste0("train",i))[,1],h=2*30)
+      snaivef <- snaive(get(paste0("train",i))[,1],h=k)
       print(paste0("train",i))
       print(colnames(get(paste0("train",i))[,1]))
       print(paste0('horizon is',k))
