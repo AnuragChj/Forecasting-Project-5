@@ -6,6 +6,10 @@ data <- read_csv("/Users/hewanci/Documents/Forecasting/Project\ and\ data-202112
 
 tsdata <- xts(data[,2:19], as.Date(data$date))
 
+temp <- read_csv("/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/California_temp_max_min.csv")
+
+tstemp <- xts(data[,2:3], as.Date(temp$Date))
+
 split1 <- sample(c(rep(0, 0.7 * nrow(tsdata)), rep(1, 0.3 * nrow(tsdata))))
 table(split1) 
 train1 <- head(tsdata, 1378)
@@ -143,7 +147,7 @@ for (i in 1:length(train_names)){
       print(paste0("RMSSE is ", rmsse))
     }
   }
-  
+ }
   
     
 #Holt winters
@@ -164,6 +168,23 @@ for (i in 1:length(train_names)){
     }
   }
   
+#ESX
+  
+for (i in 1:length(train_names))
+{
+    for (n in 1:length(variables)){
+      for (k in h){
+        esx<-ses(get(paste0("train",i))[,n],h=k, xreg =tstemp$Air.min)
+        print(paste0("train",i))
+        print(colnames(get(paste0("train",i))[,n]))
+        print(paste0('horizon is',k))
+        print(summary(esx))
+        rmsse <- rmsseerror(hw,i,k,n) 
+        print(paste0("RMSSE is ", rmsse))
+    }
+  }
+}
+    
   
   
   
