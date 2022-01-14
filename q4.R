@@ -17,42 +17,38 @@ library(rmarkdown)
 
 
 #Step 1 read the csv datasets files
-```{r}
+
 data = read.csv("/Users/Bryan/Google Drive/Cours/DSBA/T1/1. Forecasting & Predictive Analysis/6. Project/Projectdata.csv")
-```
 
-
-```{r}
+temp <- read_csv("/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/California_temp_max_min.csv")
+ 
 tsdata <- xts(data[,2:19], as.Date(data$date))
-tsdata
-```
-```
+
+tstemp <- xts(data[,2:3], as.Date(temp$Date))
+
 #Step 2 perform training and testing data split
-split: 70-30
-```{r} 
+#split: 70-30
+ 
 split1<- sample(c(rep(0, 0.7 * nrow(tsdata)), rep(1, 0.3 * nrow(tsdata))))
 train1 <- head(tsdata, 1378)
 test1 <- tail(tsdata, 591)
 test1
-```
+
 head(data_ts, round(nrow(data_ts) * 0.6))
 
-split: 80-20
-```{r}
+#split: 80-20
+
 split2<- sample(c(rep(0, 0.8 * nrow(data)), rep(1, 0.2 * nrow(data))))
 table(split2) 
 train2 <- head(tsdata, 1575)
 test2 <- tail(tsdata, 394)
 
-```
+#split: 90-10
 
-split: 90-10
-```{r}
 split3<- sample(c(rep(0, 0.9 * nrow(data)), rep(1, 0.1 * nrow(data))))
 table(split3) 
 train3 <- head(tsdata, 1772)
 test3 <- tail(tsdata, 197)
-```
 
 # Aggregation by type of item
 
@@ -62,9 +58,6 @@ household_2 = c('Household_2_CA_1',  'Household_2_CA_2', 'Household_2_CA_3')
 foods_1 = c('Foods_1_CA_1',  'Foods_1_CA_2', 'Foods_1_CA_3')
 foods_2 = c('Foods_2_CA_1',  'Foods_2_CA_2', 'Foods_2_CA_3')
 foods_3 = c('Foods_3_CA_1',  'Foods_3_CA_2', 'Foods_3_CA_3')
-
-
-
 
 
 
@@ -202,6 +195,23 @@ for (i in 1:length(train_names)){
   }
 
 
+#ESX
+  
+for (i in 1:length(train_names))
+{
+    for (n in 1:length(variables)){
+      for (k in h){
+        esx<-ses(get(paste0("train",i))[,n],h=k, xreg =tstemp$Air.min)
+        print(paste0("train",i))
+        print(colnames(get(paste0("train",i))[,n]))
+        print(paste0('horizon is',k))
+        print(summary(esx))
+          
+    }
+  }
+}
+    
+
 
 # Aggregation at Store level
 
@@ -330,3 +340,19 @@ for (i in 1:length(train_names)){
     }
   }
 
+
+#ESX
+  
+for (i in 1:length(train_names))
+{
+    for (n in 1:length(variables)){
+      for (k in h){
+        esx<-ses(get(paste0("train",i))[,n],h=k, xreg =tstemp$Air.min)
+        print(paste0("train",i))
+        print(colnames(get(paste0("train",i))[,n]))
+        print(paste0('horizon is',k))
+        print(summary(esx))
+          
+    }
+  }
+}
