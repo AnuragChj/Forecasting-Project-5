@@ -1,0 +1,214 @@
+---
+title: "q4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(forecast)
+library(xts)
+getwd()
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(ggplot2)
+library(ranger)
+library(ftsa)
+library(Metrics)
+library(smooth)
+library(Mcomp)
+library(rmarkdown)
+
+# read the data
+data = read.csv("/Users/Bryan/Google Drive/Cours/DSBA/T1/1. Forecasting & Predictive Analysis/6. Project/Projectdata.csv")
+
+# convert in a time series object
+tsdata <- xts(data[,2:19], as.Date(data$date))
+tsdata
+
+
+# Split the data
+# split: 70-30
+train1 <- head(tsdata, 1378)
+test1 <- tail(tsdata, 591)
+
+
+#split: 80-20
+train2 <- head(tsdata, 1575)
+test2 <- tail(tsdata, 394)
+
+#split: 90-10
+train3 <- head(tsdata, 1772)
+test3 <- tail(tsdata, 197)
+
+#We also read the data to set-up the SARIMAX method
+Tempdata <- read.csv("/Users/Bryan/Downloads/California_temp_max_min.csv")
+tstemp <- xts(Tempdata[,2:3],as.Date(data$date))
+tstemp1 <- head(tstemp, 1378)
+tstemp2 <- head(tstemp, 1575)
+tstemp3 <- head(tstemp, 1772)
+```
+
+
+
+```{r, include=FALSE}
+# Aggregation by type of item
+hobbies = c('Hobbies_CA_1',  'Hobbies_CA_2', 'Hobbies_CA_3')
+household_1 = c('Household_1_CA_1',  'Household_1_CA_2', 'Household_1_CA_3')
+household_2 = c('Household_2_CA_1',  'Household_2_CA_2', 'Household_2_CA_3')
+foods_1 = c('Foods_1_CA_1',  'Foods_1_CA_2', 'Foods_1_CA_3')
+foods_2 = c('Foods_2_CA_1',  'Foods_2_CA_2', 'Foods_2_CA_3')
+foods_3 = c('Foods_3_CA_1',  'Foods_3_CA_2', 'Foods_3_CA_3')
+
+
+# household_1
+household_1_train1 = train1$Household_1_CA_1 + train1$Household_1_CA_2 + train1$Household_1_CA_3
+household_1_test1 = test1$Household_1_CA_1 + test1$Household_1_CA_2 + test1$Household_1_CA_3
+colnames(household_1_train1) <- c("household_1_agg")
+colnames(household_1_test1) <- c("household_1_agg")
+
+# household_2
+household_2_train1 = train1$Household_2_CA_1 + train1$Household_2_CA_2 + train1$Household_2_CA_3
+household_2_test1 = test1$Household_2_CA_1 + test1$Household_2_CA_2 + test1$Household_2_CA_3
+colnames(household_2_train1) <- c("household_2_agg")
+colnames(household_2_test1) <- c("household_2_agg")
+
+# Foods1
+Foods_1_train1 = train1$Foods_1_CA_1 + train1$Foods_1_CA_2 + train1$Foods_1_CA_3
+Foods_1_test1 = test1$Foods_1_CA_1 + test1$Foods_1_CA_2 + test1$Foods_1_CA_3
+colnames(Foods_1_train1) <- c("Foods_1_agg")
+colnames(Foods_1_test1) <- c("Foods_1_agg")
+
+# Foods2
+Foods_2_train1 = train1$Foods_2_CA_1 + train1$Foods_2_CA_2 + train1$Foods_2_CA_3
+Foods_2_test1 = test1$Foods_2_CA_1 + test1$Foods_2_CA_2 + test1$Foods_2_CA_3
+colnames(Foods_2_train1) <- c("Foods_2_agg")
+colnames(Foods_2_test1) <- c("Foods_2_agg")
+
+# Foods3
+Foods_3_train1 = train1$Foods_3_CA_1 + train1$Foods_3_CA_2 + train1$Foods_3_CA_3
+Foods_3_test1 = test1$Foods_3_CA_1 + test1$Foods_3_CA_2 + test1$Foods_3_CA_3
+colnames(Foods_3_train1) <- c("Foods_3_agg")
+colnames(Foods_3_test1) <- c("Foods_3_agg")
+
+# Produce forecasts for each aggregates using previous models
+train_names <- c('hobbies_train1', 'household_1_train1', 'household_2_train1', 'Foods1_train1', 'Foods2_train1', 'Foods3_train1')
+test_names <- c('hobbies_test1', 'household_1_test1', 'household_2_test1', 'Foods1_test1', 'Foods2_test1', 'Foods3_test1')
+
+
+# Set the forecast horizons
+h = seq(1:28)  # the horizons
+```
+
+
+Naive
+```{r pressure, echo=FALSE}
+# Naive
+
+for (i in 1:length(train_names)){
+    for (k in h){
+      naivef <- naive(get(paste0("train",i))[,1],h=k)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,1]))
+      print(paste0('horizon is',k))
+      print(summary(naivef))
+    }
+}
+```
+
+
+sNaive
+```{r}
+for (i in 1:length(train_names)){
+    for (k in h){
+      snaivef <- snaive(get(paste0("train",i))[,1],h=k)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,1]))
+      print(paste0('horizon is',k))
+      print(summary(naivef))
+    }
+}
+```
+
+
+MA
+```{r}
+## MA
+
+for (i in 1:length(train_names)){
+    for (k in h){
+      maf = forecast(ma(get(paste0("train",i))[,1], order = 15), h=k )
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,1]))
+      print(paste0('horizon is',k))
+      print(summary(maf))
+    }
+}
+```
+
+
+ES
+```{r}
+## ES
+
+
+for (i in 1:length(train_names)){
+  for (k in h){
+    esf <- ses(get(paste0("train",i))[,1], h=k)
+    print(paste0("train",i))
+    print(colnames(get(paste0("train",i))[,1]))
+    print(summary(esf))
+  }
+}
+```
+
+
+SARIMA
+```{r}
+#SARIMA
+for (i in 1:length(train_names)){
+  for (k in h){
+      sarima<-forecast(auto.arima(get(paste0("train",i))[,1],D=1,seasonal=TRUE), h=k)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,1]))
+      print(paste0('horizon is',k))
+      print(summary(sarima))
+  }
+}
+```
+
+
+SARIMAX
+```{r}
+#SARIMAX
+
+for (i in 1:length(train_names)){
+    for (k in h){
+      sarimax<-forecast::forecast(auto.arima(get(paste0("train",i))[,1], xreg =get(paste0("tstemp",1))$Air.min,seasonal = TRUE),xreg =get(paste0("tstemp",1))$Air.min,h=k)
+      print(paste0("train",i))
+      print(colnames(get(paste0("train",i))[,1]))
+      print(paste0('horizon is',k))
+      print(summary(sarimax))
+    }
+}
+
+```
+
+State-Space Model
+```{r}
+## SSM
+
+for (j in 1:3){
+for (i in 1:length(train_names)){
+    for (k in h){
+      ssmf = forecast(tbats(ts(get(paste0("train",j))[,1])), h=k )
+      print(paste0("train",j))
+      print(colnames(get(paste0("train",j))[,1]))
+      print(paste0('horizon is',k))
+      print(summary(ssmf))
+    }
+}
+}
+```
+
