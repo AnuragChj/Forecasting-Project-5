@@ -185,6 +185,18 @@ for (i in 1:length(train_names))
   }
 }
     
-  
+# State Space
+
+for (i in 1:length(train_names)){
+  for (n in 1:length(variables)){
+    for (k in h){
+    tbats <- tbats(ts(get(paste0("train",i)))[,n])
+    print(paste0("train",i))
+    print(colnames(get(paste0("train",i))[,n]))
+    pred <- forecast(tbats, h=k)
+    print(pred <- pred$mean)
+    }
+  }
+}
   
   
