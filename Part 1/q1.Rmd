@@ -1,0 +1,123 @@
+---
+title: "q1"
+output: pdf_document
+---
+```{r setup}
+library(readr)
+library(forecast)
+library(xts)
+library(ggplot2)
+library(reshape2)
+library(dygraphs)
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(tidyverse)
+library(timetk)
+library(tseries)
+# Setup for the plotly charts (# FALSE returns ggplots)
+interactive <- TRUE
+```
+
+#Step 1 read the csv datasets files
+```{r}
+data = read.csv("/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/github code/Projectdata.csv")
+```
+
+#transform to time series data
+```{r}
+data$date <- as.Date(data$date)  
+tsdata <- xts(data[,2:19], data$date )
+```
+
+
+#Step 2 plot the data with acf and pacf
+```{r}
+for (i in 1:6){
+ pardata <- tsdata[,c(i,i+6,i+12)]
+ p <- dygraph(pardata)
+ acf(pardata)
+ pacf(pardata)
+ print(p)
+ }
+```
+
+#Step 3 check seasonality
+```{r}
+#function to plot hte decomposition
+decomp.plot <- function(x, main = NULL, ...)
+{
+    if(is.null(main))
+	main <- paste("Decomposition of", x$type, "time series")
+    plot(cbind(observed = x$random + if (x$type == "additive")
+        x$trend + x$seasonal
+    else x$trend * x$seasonal, trend = x$trend, seasonal = x$seasonal,
+        random = x$random), main = main, ...)
+}
+
+for (i in 1:18)
+{
+ monthdata <- ts(tsdata, frequency=12)
+ seasondata<- decompose(monthdata[,i])
+ decomp.plot(seasondata, main = colnames(monthdata)[i])
+}
+
+```
+
+#Step 3 check seasonality: ADF test
+```{r}
+for (i in 2:18){
+a <- adf.test(data[,i])
+print(a)
+}
+```
+
+
+#Stationarity test
+#KPSS test
+#Null hypo in KPSS is that data is stationary
+#If p<0.05, null hypothesis is rejected
+```{r}
+#Hobbies
+kpss.test(tsdata[,"Hobbies_CA_1"])
+kpss.test(tsdata[,"Hobbies_CA_2"])
+kpss.test(tsdata[,"Hobbies_CA_3"])
+
+```
+Hobbies show nonstationarity-reject null hypothesis 
+
+
+Household
+```{r}
+kpss.test(tsdata[,"Household_1_CA_1"])
+kpss.test(tsdata[,"Household_1_CA_2"])
+kpss.test(tsdata[,"Household_1_CA_3"])
+
+kpss.test(tsdata[,"Household_2_CA_1"])
+kpss.test(tsdata[,"Household_2_CA_2"])
+kpss.test(tsdata[,"Household_2_CA_3"])
+```
+Household_1 and Household_2 parameters show nonstationarity
+
+
+```{r}
+#Foods
+kpss.test(tsdata[,"Foods_1_CA_1"])
+kpss.test(tsdata[,"Foods_1_CA_2"])
+kpss.test(tsdata[,"Foods_1_CA_3"])
+
+kpss.test(tsdata[,"Foods_2_CA_1"])
+kpss.test(tsdata[,"Foods_2_CA_2"])
+kpss.test(tsdata[,"Foods_2_CA_3"])
+
+kpss.test(tsdata[,"Foods_3_CA_1"])
+kpss.test(tsdata[,"Foods_3_CA_2"])
+kpss.test(tsdata[,"Foods_3_CA_3"])
+
+```
+Foods_1,2 and 3 parameters show nonstationarity
+
+
+Summary of analysis: by checking both the graphs and stationary test, all the time series show nonstationary and they have both the seasonal and trend part. 
+

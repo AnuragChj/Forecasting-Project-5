@@ -1,0 +1,120 @@
+---
+title: "Part 3 Machine learning"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(forecast)
+library(xts)
+getwd()
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(ggplot2)
+library(ranger)
+library(ftsa)
+library(Metrics)
+library(rmarkdown)
+library(fable)
+```
+
+By comparing with the two models and 
+
+
+1. Prepare train test data, same data is applied to the pyton code
+```{r}
+data <- read_csv("/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/Projectdata.csv")
+
+tsdata <- xts(data[,2:19], as.Date(data$date))
+
+split2<- sample(c(rep(0, 0.8 * nrow(data)), rep(1, 0.2 * nrow(data))))
+table(split2) 
+train2 <- head(tsdata, 1575)
+test2 <- tail(tsdata, 394)
+```
+
+2. Prophet Model 
+```{r}
+#import forecast results from the model
+forecast_p <- read.csv('/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/github code/Part 3/forecast_summary.csv')
+
+#prepare data for comparision - h = 28
+yhat <- tail(forecast_p,28)
+actual <- head(test2, 28) 
+```
+
+
+```{r}
+mat = matrix(ncol = 18, nrow =4)
+df_res = data.frame(mat)
+names(df_res) = colnames(yhat)[-1]
+```
+
+
+```{r}
+#prepare data for comparision
+mat = matrix(ncol = 18, nrow =4)
+df_res = data.frame(mat)
+names(df_res) = colnames(yhat)[-1]
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE")
+for (i in 2:length(colnames(yhat))){
+  df_res[1,i-1] = mae(actual, yhat[,i])
+  df_res[2,i-1] = mape(actual, yhat[,i])
+  df_res[3,i-1] = mse(actual, yhat[,i])
+  df_res[4,i-1] = rmse(actual, yhat[,i])
+}
+
+print(df_res)
+```
+
+2. LSTM Model 
+```{r}
+#import forecast results from the model
+forecast_l <- read.csv('/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/github code/Part 3/result_test1.csv',sep = ";")
+#prepare data for comparision - h = 28
+yhat_l <- tail(forecast_l,28)
+yhat_l <- xts(yhat_l[,2:19], as.Date(yhat_l$date))
+actual <- head(test2, 28) 
+```
+
+
+```{r}
+mat = matrix(ncol = 18, nrow =4)
+df_res_2 = data.frame(mat)
+names(df_res_2) = colnames(yhat_l)[-1]
+```
+
+
+```{r}
+#prepare data for comparision
+mat = matrix(ncol = 18, nrow =4)
+df_res_2 = data.frame(mat)
+names(df_res_2) = colnames(yhat)[-1]
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE")
+for (i in 2:length(colnames(yhat_l))){
+  df_res_2[1,i-1] = mae(actual, as.numeric(yhat_l[,i]))
+  df_res_2[2,i-1] = mape(actual, as.numeric(yhat_l[,i]))
+  df_res_2[3,i-1] = mse(actual, as.numeric(yhat_l[,i]))
+  df_res_2[4,i-1] = rmse(actual, as.numeric(yhat_l[,i]))
+}
+
+print(df_res_2)
+```
+
+```{r}
+print(df_res) #summary of prophet mode;
+```
+
+Summary of analysis: 
+By comparing the results of two models, the model prophet have relatively lower erros than the LTSM model for 28 days forecast. 
+For prophet model, the variables Foods_3_CA_1 has very large erros. 
+For LTSM models, the erros are mainly coming from the variables Hobbies_CA_2 and Household_1_CA_2
+In general, the performance of the models vary across the variables. 
+
+
+
+
+
+
