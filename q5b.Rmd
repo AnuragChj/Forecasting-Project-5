@@ -3,8 +3,9 @@ title: "Q1.5b"
 output: html_document
 ---
 
-## Load necessary libraries
+
 ```{r setup, include=FALSE}
+## Load necessary libraries
 library(readr)
 library(forecast)
 library(xts)
