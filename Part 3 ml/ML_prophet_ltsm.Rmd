@@ -1,0 +1,67 @@
+---
+title: "Part 3 Machine learning"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(forecast)
+library(xts)
+getwd()
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(ggplot2)
+library(ranger)
+library(ftsa)
+library(Metrics)
+library(rmarkdown)
+library(fable)
+```
+
+1. Prepare train test data, same data is applied to the pyton code
+```{r}
+data <- read_csv("/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/Projectdata.csv")
+
+tsdata <- xts(data[,2:19], as.Date(data$date))
+
+split2<- sample(c(rep(0, 0.8 * nrow(data)), rep(1, 0.2 * nrow(data))))
+table(split2) 
+train2 <- head(tsdata, 1575)
+test2 <- tail(tsdata, 394)
+```
+
+2. Prophet Model 
+```{r setup, include=FALSE}
+#import forecast results from the model
+forecast_p <- read.csv('/Users/yingding/Desktop/Forcasting M2/Project and data-20220107/part 3/Part 3 ml/forecast_summary.csv')
+
+#prepare data for comparision - h = 28
+yhat <- tail(forecast_p,28)
+actual <- head(test2, 28) 
+```
+
+
+```{r setup, include=FALSE}
+mat = matrix(ncol = 18, nrow =4)
+df_res = data.frame(mat)
+names(df_res) = colnames(yhat)[-1]
+```
+
+```{r}
+#prepare data for comparision
+mat = matrix(ncol = 18, nrow =4)
+df_res = data.frame(mat)
+names(df_res) = colnames(yhat)[-1]
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE")
+for (i in 2:length(colnames(yhat))){
+  df_res[1,i-1] = mae(actual, yhat[,i])
+  df_res[2,i-1] = mape(actual, yhat[,i])
+  df_res[3,i-1] = mse(actual, yhat[,i])
+  df_res[4,i-1] = rmse(actual, yhat[,i])
+}
+
+print(df_res)
+```
+
