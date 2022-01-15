@@ -1,0 +1,963 @@
+---
+title: "Q1.5b"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+## Load necessary libraries
+library(readr)
+library(forecast)
+library(xts)
+getwd()
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(ggplot2)
+library(ranger)
+library(ftsa)
+library(Metrics)
+library(smooth)
+library(Mcomp)
+library(rmarkdown)
+library(fable)
+
+
+## Load environments
+
+#Load the environment variables from q1.5a and Q1.3
+load("myEnvironment_Q3.RData")
+load("myEnvironment_Q1.5a.RData")
+
+
+#Number of variables
+nvar = 18
+
+Split_1_daily = list(Methods_Hobb_CA1_Sp1, Methods_Hobb_CA2_Sp1, Methods_Hobb_CA3_Sp1, Methods_House1_CA1_Sp1, Methods_House1_CA2_Sp1, Methods_House1_CA3_Sp1, Methods_House2_CA1_Sp1, Methods_House2_CA2_Sp1, Methods_House2_CA3_Sp1, Methods_Foods1_CA1_Sp1, Methods_Foods1_CA2_Sp1, Methods_Foods1_CA3_Sp1, Methods_Foods2_CA1_Sp1, Methods_Foods2_CA2_Sp1, Methods_Foods2_CA3_Sp1, Methods_Foods3_CA1_Sp1, Methods_Foods3_CA2_Sp1, Methods_Foods3_CA3_Sp1)
+
+
+Split_1_weekly = list(Methods_Q5_Hobb_CA1_Sp1, Methods_Q5_Hobb_CA2_Sp1, Methods_Q5_Hobb_CA3_Sp1, Methods_Q5_House1_CA1_Sp1, Methods_Q5_House1_CA2_Sp1, Methods_Q5_House1_CA3_Sp1, Methods_Q5_House2_CA1_Sp1, Methods_Q5_House2_CA2_Sp1, Methods_Q5_House2_CA3_Sp1, Methods_Q5_Foods1_CA1_Sp1, Methods_Q5_Foods1_CA2_Sp1, Methods_Q5_Foods1_CA3_Sp1, Methods_Q5_Foods2_CA1_Sp1, Methods_Q5_Foods2_CA2_Sp1, Methods_Q5_Foods2_CA3_Sp1, Methods_Q5_Foods3_CA1_Sp1, Methods_Q5_Foods3_CA2_Sp1, Methods_Q5_Foods3_CA3_Sp1)
+
+ts = xts(Methods_Foods1_CA2_Sp2[,1:10],as.Date(data[1379:1406, ]$date))
+
+var_names <- c('Hobbies_CA_1', 'Hobbies_CA_2', 'Hobbies_CA_3',  'Household_1_CA_1', 'Household_1_CA_2', 'Household_1_CA_3', 'Household_2_CA_1', 'Household_2_CA_2', 'Household_2_CA_3', "Foods_1_CA_1", 'Foods_1_CA_2', 'Foods_1_CA_3', "Foods_2_CA_1", 'Foods_2_CA_2', 'Foods_2_CA_3', "Foods_3_CA_1", 'Foods_3_CA_2', 'Foods_3_CA_3')
+
+
+# Create empty dataframe
+mat = matrix(ncol = 3, nrow =18)
+naivedf = data.frame(mat)
+snaivedf = data.frame(mat)
+madf = data.frame(mat)
+esdf = data.frame(mat)
+esxdf = data.frame(mat)
+arimadf = data.frame(mat)
+sarimadf = data.frame(mat)
+sarimaxdf = data.frame(mat)
+hwdf = data.frame(mat)
+ssmdf = data.frame(mat)
+```
+
+
+The tables shown below present the RMSSE values for the different forecasting methods and compares their accuracy for both weekly forecasts and weekly aggregates of daily forecasts.
+
+
+
+##First split - 70/30
+For the first split
+Split 1 - Naive forecasts
+```{r , echo=FALSE}
+m = 1
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    naivedf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    naivedf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(naivedf) = c("Weekly", "Daily_agg", "Best")
+rownames(naivedf) = var_names
+
+for (r in 1:nrow(naivedf)){
+    naivedf[r,3] = ifelse(naivedf[r,1] > naivedf[r,2], "Daily agg.", "Weekly")
+
+}
+
+naivedf
+```
+
+Split 1 - sNaive forecasts
+```{r , echo=FALSE}
+m = 2
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    snaivedf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    snaivedf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(snaivedf) = c("Weekly", "Daily_agg", "Best")
+rownames(snaivedf) = var_names
+
+for (r in 1:nrow(snaivedf)){
+    snaivedf[r,3] = ifelse(snaivedf[r,1] > snaivedf[r,2], "Daily agg.", "Weekly")
+
+}
+
+snaivedf
+```
+
+
+Split 1 - MA forecasts
+```{r , echo=FALSE}
+m = 3
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    madf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    madf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(madf) = c("Weekly", "Daily_agg", "Best")
+rownames(madf) = var_names
+
+for (r in 1:nrow(madf)){
+    madf[r,3] = ifelse(madf[r,1] > madf[r,2], "Daily agg.", "Weekly")
+
+}
+
+madf
+```
+
+
+Split 1 - ES forecasts
+```{r , echo=FALSE}
+m = 4
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    esdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    esdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(esdf) = c("Weekly", "Daily_agg", "Best")
+rownames(esdf) = var_names
+
+for (r in 1:nrow(esdf)){
+    esdf[r,3] = ifelse(esdf[r,1] > esdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+esdf
+```
+
+
+Split 1 - ESX forecasts
+```{r , echo=FALSE}
+m = 5
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    esxdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    esxdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(esxdf) = c("Weekly", "Daily_agg", "Best")
+rownames(esxdf) = var_names
+
+for (r in 1:nrow(esxdf)){
+    esxdf[r,3] = ifelse(esxdf[r,1] > esxdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+esxdf
+```
+
+
+Split 1 - ARIMA forecasts
+```{r , echo=FALSE}
+m = 6
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    arimadf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    arimadf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(arimadf) = c("Weekly", "Daily_agg", "Best")
+rownames(arimadf) = var_names
+
+for (r in 1:nrow(arimadf)){
+    arimadf[r,3] = ifelse(arimadf[r,1] > arimadf[r,2], "Daily agg.", "Weekly")
+
+}
+
+arimadf
+```
+
+
+Split 1 - SARIMA forecasts
+```{r , echo=FALSE}
+m = 7
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    sarimadf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    sarimadf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(sarimadf) = c("Weekly", "Daily_agg", "Best")
+rownames(sarimadf) = var_names
+
+for (r in 1:nrow(sarimadf)){
+    sarimadf[r,3] = ifelse(sarimadf[r,1] > sarimadf[r,2], "Daily agg.", "Weekly")
+
+}
+
+sarimadf
+```
+
+Split 1 - SARIMAX forecasts
+```{r , echo=FALSE}
+m = 8
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    sarimaxdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    sarimaxdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(sarimaxdf) = c("Weekly", "Daily_agg", "Best")
+rownames(sarimaxdf) = var_names
+
+for (r in 1:nrow(sarimaxdf)){
+    sarimaxdf[r,3] = ifelse(sarimaxdf[r,1] > sarimaxdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+sarimaxdf
+```
+
+
+
+Split 1 - Holt-Winters forecasts
+```{r , echo=FALSE}
+m = 9
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    hwdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    hwdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(hwdf) = c("Weekly", "Daily_agg", "Best")
+rownames(hwdf) = var_names
+
+for (r in 1:nrow(hwdf)){
+    hwdf[r,3] = ifelse(hwdf[r,1] > hwdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+hwdf
+```
+
+
+Split 1 - State-Space Model forecasts
+```{r , echo=FALSE}
+m = 10
+
+for (v in 1:length(var_names)){
+    series_daily = Split_1_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1382:1409, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_1_weekly[[v]][,m], 4))
+    ssmdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    ssmdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(ssmdf) = c("Weekly", "Daily_agg", "Best")
+rownames(ssmdf) = var_names
+
+for (r in 1:nrow(ssmdf)){
+    ssmdf[r,3] = ifelse(ssmdf[r,1] > ssmdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+ssmdf
+```
+
+
+##Second split - 80/20
+For the second split
+```{r , echo=FALSE}
+#Number of variables
+nvar = 18
+
+Split_2_daily = list(Methods_Hobb_CA1_Sp2, Methods_Hobb_CA2_Sp2, Methods_Hobb_CA3_Sp2, Methods_House1_CA1_Sp2, Methods_House1_CA2_Sp2, Methods_House1_CA3_Sp2, Methods_House2_CA1_Sp2, Methods_House2_CA2_Sp2, Methods_House2_CA3_Sp2, Methods_Foods1_CA1_Sp2, Methods_Foods1_CA2_Sp2, Methods_Foods1_CA3_Sp2, Methods_Foods2_CA1_Sp2, Methods_Foods2_CA2_Sp2, Methods_Foods2_CA3_Sp2, Methods_Foods3_CA1_Sp2, Methods_Foods3_CA2_Sp2, Methods_Foods3_CA3_Sp2)
+
+
+Split_2_weekly = list(Methods_Q5_Hobb_CA1_Sp2, Methods_Q5_Hobb_CA2_Sp2, Methods_Q5_Hobb_CA3_Sp2, Methods_Q5_House1_CA1_Sp2, Methods_Q5_House1_CA2_Sp2, Methods_Q5_House1_CA3_Sp2, Methods_Q5_House2_CA1_Sp2, Methods_Q5_House2_CA2_Sp2, Methods_Q5_House2_CA3_Sp2, Methods_Q5_Foods1_CA1_Sp2, Methods_Q5_Foods1_CA2_Sp2, Methods_Q5_Foods1_CA3_Sp2, Methods_Q5_Foods2_CA1_Sp2, Methods_Q5_Foods2_CA2_Sp2, Methods_Q5_Foods2_CA3_Sp2, Methods_Q5_Foods3_CA1_Sp2, Methods_Q5_Foods3_CA2_Sp2, Methods_Q5_Foods3_CA3_Sp2)
+
+ts = xts(Methods_Foods1_CA2_Sp2[,1:10],as.Date(data[1379:1406, ]$date))
+
+var_names <- c('Hobbies_CA_1', 'Hobbies_CA_2', 'Hobbies_CA_3',  'Household_1_CA_1', 'Household_1_CA_2', 'Household_1_CA_3', 'Household_2_CA_1', 'Household_2_CA_2', 'Household_2_CA_3', "Foods_1_CA_1", 'Foods_1_CA_2', 'Foods_1_CA_3', "Foods_2_CA_1", 'Foods_2_CA_2', 'Foods_2_CA_3', "Foods_3_CA_1", 'Foods_3_CA_2', 'Foods_3_CA_3')
+
+
+# Create empty dataframe
+mat = matrix(ncol = 3, nrow =18)
+naivedf = data.frame(mat)
+snaivedf = data.frame(mat)
+madf = data.frame(mat)
+esdf = data.frame(mat)
+esxdf = data.frame(mat)
+arimadf = data.frame(mat)
+sarimadf = data.frame(mat)
+sarimaxdf = data.frame(mat)
+hwdf = data.frame(mat)
+ssmdf = data.frame(mat)
+```
+
+
+Split 2 - Naive forecasts
+```{r , echo=FALSE}
+m = 1
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    naivedf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    naivedf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(naivedf) = c("Weekly", "Daily_agg", "Best")
+rownames(naivedf) = var_names
+
+for (r in 1:nrow(naivedf)){
+    naivedf[r,3] = ifelse(naivedf[r,1] > naivedf[r,2], "Daily agg.", "Weekly")
+
+}
+
+naivedf
+```
+
+
+Split 2 - sNaive forecasts
+```{r , echo=FALSE}
+m = 2
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    snaivedf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    snaivedf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(snaivedf) = c("Weekly", "Daily_agg", "Best")
+rownames(snaivedf) = var_names
+
+for (r in 1:nrow(snaivedf)){
+    snaivedf[r,3] = ifelse(snaivedf[r,1] > snaivedf[r,2], "Daily agg.", "Weekly")
+
+}
+
+snaivedf
+```
+
+
+Split 2 - MA forecasts
+```{r , echo=FALSE}
+m = 3
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    madf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    madf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(madf) = c("Weekly", "Daily_agg", "Best")
+rownames(madf) = var_names
+
+for (r in 1:nrow(madf)){
+    madf[r,3] = ifelse(madf[r,1] > madf[r,2], "Daily agg.", "Weekly")
+
+}
+
+madf
+```
+
+Split 2 - ES forecasts
+```{r , echo=FALSE}
+m = 4
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    esdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    esdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(esdf) = c("Weekly", "Daily_agg", "Best")
+rownames(esdf) = var_names
+
+for (r in 1:nrow(esdf)){
+    esdf[r,3] = ifelse(esdf[r,1] > esdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+esdf
+```
+
+Split 2 - ESX forecasts
+```{r , echo=FALSE}
+m = 5
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    esxdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    esxdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(esxdf) = c("Weekly", "Daily_agg", "Best")
+rownames(esxdf) = var_names
+
+for (r in 1:nrow(esxdf)){
+    esxdf[r,3] = ifelse(esxdf[r,1] > esxdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+esxdf
+```
+
+
+Split 2 - ARIMA forecasts
+```{r , echo=FALSE}
+m = 6
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    arimadf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    arimadf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(arimadf) = c("Weekly", "Daily_agg", "Best")
+rownames(arimadf) = var_names
+
+for (r in 1:nrow(arimadf)){
+    arimadf[r,3] = ifelse(arimadf[r,1] > arimadf[r,2], "Daily agg.", "Weekly")
+
+}
+
+arimadf
+```
+
+
+Split 2 - SARIMA forecasts
+```{r , echo=FALSE}
+m = 7
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    sarimadf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    sarimadf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(sarimadf) = c("Weekly", "Daily_agg", "Best")
+rownames(sarimadf) = var_names
+
+for (r in 1:nrow(sarimadf)){
+    sarimadf[r,3] = ifelse(sarimadf[r,1] > sarimadf[r,2], "Daily agg.", "Weekly")
+
+}
+
+sarimadf
+```
+
+
+Split 2 - SARIMAX forecasts
+```{r , echo=FALSE}
+m = 8
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    sarimaxdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    sarimaxdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(sarimaxdf) = c("Weekly", "Daily_agg", "Best")
+rownames(sarimaxdf) = var_names
+
+for (r in 1:nrow(sarimaxdf)){
+    sarimaxdf[r,3] = ifelse(sarimaxdf[r,1] > sarimaxdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+sarimaxdf
+```
+
+
+Split 2 - Holt-Winters forecasts
+```{r , echo=FALSE}
+m = 9
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    hwdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    hwdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(hwdf) = c("Weekly", "Daily_agg", "Best")
+rownames(hwdf) = var_names
+
+for (r in 1:nrow(hwdf)){
+    hwdf[r,3] = ifelse(hwdf[r,1] > hwdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+hwdf
+```
+
+
+Split 2 - State-Space Model forecasts
+```{r , echo=FALSE}
+m = 10
+
+for (v in 1:length(var_names)){
+    series_daily = Split_2_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_2_weekly[[v]][,m], 4))
+    ssmdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    ssmdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(ssmdf) = c("Weekly", "Daily_agg", "Best")
+rownames(ssmdf) = var_names
+
+for (r in 1:nrow(ssmdf)){
+    ssmdf[r,3] = ifelse(ssmdf[r,1] > ssmdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+ssmdf
+```
+
+##Third split - 90/10
+For the third split
+```{r , echo=FALSE}
+#Number of variables
+nvar = 18
+
+Split_3_daily = list(Methods_Hobb_CA1_Sp3, Methods_Hobb_CA2_Sp3, Methods_Hobb_CA3_Sp3, Methods_House1_CA1_Sp3, Methods_House1_CA2_Sp3, Methods_House1_CA3_Sp3, Methods_House2_CA1_Sp3, Methods_House2_CA2_Sp3, Methods_House2_CA3_Sp3, Methods_Foods1_CA1_Sp3, Methods_Foods1_CA2_Sp3, Methods_Foods1_CA3_Sp3, Methods_Foods2_CA1_Sp3, Methods_Foods2_CA2_Sp3, Methods_Foods2_CA3_Sp3, Methods_Foods3_CA1_Sp3, Methods_Foods3_CA2_Sp3, Methods_Foods3_CA3_Sp3)
+
+
+Split_3_weekly = list(Methods_Q5_Hobb_CA1_Sp3, Methods_Q5_Hobb_CA2_Sp3, Methods_Q5_Hobb_CA3_Sp3, Methods_Q5_House1_CA1_Sp3, Methods_Q5_House1_CA2_Sp3, Methods_Q5_House1_CA3_Sp3, Methods_Q5_House2_CA1_Sp3, Methods_Q5_House2_CA2_Sp3, Methods_Q5_House2_CA3_Sp3, Methods_Q5_Foods1_CA1_Sp3, Methods_Q5_Foods1_CA2_Sp3, Methods_Q5_Foods1_CA3_Sp3, Methods_Q5_Foods2_CA1_Sp3, Methods_Q5_Foods2_CA2_Sp3, Methods_Q5_Foods2_CA3_Sp3, Methods_Q5_Foods3_CA1_Sp3, Methods_Q5_Foods3_CA2_Sp3, Methods_Q5_Foods3_CA3_Sp3)
+
+ts = xts(Methods_Foods1_CA2_Sp3[,1:10],as.Date(data[1379:1406, ]$date))
+
+var_names <- c('Hobbies_CA_1', 'Hobbies_CA_2', 'Hobbies_CA_3',  'Household_1_CA_1', 'Household_1_CA_2', 'Household_1_CA_3', 'Household_2_CA_1', 'Household_2_CA_2', 'Household_2_CA_3', "Foods_1_CA_1", 'Foods_1_CA_2', 'Foods_1_CA_3', "Foods_2_CA_1", 'Foods_2_CA_2', 'Foods_2_CA_3', "Foods_3_CA_1", 'Foods_3_CA_2', 'Foods_3_CA_3')
+
+
+# Create empty dataframe
+mat = matrix(ncol = 3, nrow =18)
+naivedf = data.frame(mat)
+snaivedf = data.frame(mat)
+madf = data.frame(mat)
+esdf = data.frame(mat)
+esxdf = data.frame(mat)
+arimadf = data.frame(mat)
+sarimadf = data.frame(mat)
+sarimaxdf = data.frame(mat)
+hwdf = data.frame(mat)
+ssmdf = data.frame(mat)
+```
+
+
+Split 3 - Naive forecasts
+```{r , echo=FALSE}
+m = 1
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    naivedf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    naivedf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(naivedf) = c("Weekly", "Daily_agg", "Best")
+rownames(naivedf) = var_names
+
+for (r in 1:nrow(naivedf)){
+    naivedf[r,3] = ifelse(naivedf[r,1] > naivedf[r,2], "Daily agg.", "Weekly")
+
+}
+
+naivedf
+```
+
+
+Split 3 - sNaive forecasts
+```{r , echo=FALSE}
+m = 2
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    snaivedf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    snaivedf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(snaivedf) = c("Weekly", "Daily_agg", "Best")
+rownames(snaivedf) = var_names
+
+for (r in 1:nrow(snaivedf)){
+    snaivedf[r,3] = ifelse(snaivedf[r,1] > snaivedf[r,2], "Daily agg.", "Weekly")
+
+}
+
+snaivedf
+```
+
+Split 3 - MA forecasts
+```{r , echo=FALSE}
+m = 3
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    madf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    madf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(madf) = c("Weekly", "Daily_agg", "Best")
+rownames(madf) = var_names
+
+for (r in 1:nrow(madf)){
+    madf[r,3] = ifelse(madf[r,1] > madf[r,2], "Daily agg.", "Weekly")
+
+}
+
+madf
+```
+
+
+Split 3 - ES forecasts
+```{r , echo=FALSE}
+m = 4
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    esdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    esdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(esdf) = c("Weekly", "Daily_agg", "Best")
+rownames(esdf) = var_names
+
+for (r in 1:nrow(esdf)){
+    esdf[r,3] = ifelse(esdf[r,1] > esdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+esdf
+```
+
+Split 3 - ESX forecasts
+```{r , echo=FALSE}
+m = 5
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    esxdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    esxdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(esxdf) = c("Weekly", "Daily_agg", "Best")
+rownames(esxdf) = var_names
+
+for (r in 1:nrow(esxdf)){
+    esxdf[r,3] = ifelse(esxdf[r,1] > esxdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+esxdf
+```
+
+
+Split 3 - ARIMA forecasts
+```{r , echo=FALSE}
+m = 6
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    arimadf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    arimadf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(arimadf) = c("Weekly", "Daily_agg", "Best")
+rownames(arimadf) = var_names
+
+for (r in 1:nrow(arimadf)){
+    arimadf[r,3] = ifelse(arimadf[r,1] > arimadf[r,2], "Daily agg.", "Weekly")
+
+}
+
+arimadf
+```
+
+
+Split 3 - SARIMA forecasts
+```{r , echo=FALSE}
+m = 7
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    sarimadf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    sarimadf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(sarimadf) = c("Weekly", "Daily_agg", "Best")
+rownames(sarimadf) = var_names
+
+for (r in 1:nrow(sarimadf)){
+    sarimadf[r,3] = ifelse(sarimadf[r,1] > sarimadf[r,2], "Daily agg.", "Weekly")
+
+}
+
+sarimadf
+```
+
+
+Split 3 - SARIMAX forecasts
+```{r , echo=FALSE}
+m = 8
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    sarimaxdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    sarimaxdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(sarimaxdf) = c("Weekly", "Daily_agg", "Best")
+rownames(sarimaxdf) = var_names
+
+for (r in 1:nrow(sarimaxdf)){
+    sarimaxdf[r,3] = ifelse(sarimaxdf[r,1] > sarimaxdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+sarimaxdf
+```
+
+
+Split 3 - Holt-Winters forecasts
+```{r , echo=FALSE}
+m = 9
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    hwdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    hwdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(hwdf) = c("Weekly", "Daily_agg", "Best")
+rownames(hwdf) = var_names
+
+for (r in 1:nrow(hwdf)){
+    hwdf[r,3] = ifelse(hwdf[r,1] > hwdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+hwdf
+```
+
+
+Split 3 - State-Space Model forecasts
+```{r , echo=FALSE}
+m = 10
+
+for (v in 1:length(var_names)){
+    series_daily = Split_3_daily[[v]]
+    ts = xts(series_daily,as.Date(data[1579:1606, ]$date))
+    ts_daily = as.xts(ts)
+    ts_daily_weekly = apply.weekly(ts_daily[,1:10], colSums)
+    actuals = as.numeric(head(test1[,v], 4))
+    predictions_daily = as.numeric(head(ts_daily_weekly[,m], 4))
+    predictions_weekly = as.numeric(head(Split_3_weekly[[v]][,m], 4))
+    ssmdf[v,1] = RMSSE(actuals, predictions_weekly, 0.5)
+    ssmdf[v,2] = RMSSE(actuals, predictions_daily, 0.5)
+}
+
+colnames(ssmdf) = c("Weekly", "Daily_agg", "Best")
+rownames(ssmdf) = var_names
+
+for (r in 1:nrow(ssmdf)){
+    ssmdf[r,3] = ifelse(ssmdf[r,1] > ssmdf[r,2], "Daily agg.", "Weekly")
+
+}
+
+ssmdf
+```
