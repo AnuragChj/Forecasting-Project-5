@@ -1,0 +1,2318 @@
+---
+title: "q1.5"
+output: html_document
+---
+
+We call the necessary packages as below:
+```{r setup, include=FALSE}
+library(readr)
+library(forecast)
+library(xts)
+getwd()
+library(dplyr)
+library(fpp)
+library(fpp3)
+library(gridExtra)
+library(ggplot2)
+library(ranger)
+library(ftsa)
+library(Metrics)
+library(smooth)
+library(Mcomp)
+library(rmarkdown)
+library(fable)
+```
+
+The first step is to read the data in a .csv file and convert them to a time series object.
+
+#Step 1 read the csv datasets files
+```{r}
+data = read.csv("/Users/Bryan/Google Drive/Cours/DSBA/T1/1. Forecasting & Predictive Analysis/6. Project/Projectdata.csv")
+tsdata <- xts(data[,2:19], as.Date(data$date))
+```
+
+We also read the data to set-up the SARIMAX method
+```{r}
+Tempdata <- read.csv("/Users/Bryan/Downloads/California_temp_max_min.csv")
+tstemp <- xts(Tempdata[,2:3],as.Date(data$date))
+tstemp1 <- head(tstemp, 1378)
+tstemp2 <- head(tstemp, 1575)
+tstemp3 <- head(tstemp, 1772)
+```
+
+
+As for the previous questions, we split the time series in three different splits:
+- 70-30
+- 80-20
+- 90-10
+#Step 3 perform training and testing data split
+split: 70-30
+```{r 70-30}
+train1 <- head(tsdata, 1378)
+test1 <- tail(tsdata, 591)
+```
+
+split: 80-20
+```{r 80-20}
+train2 <- head(tsdata, 1575)
+test2 <- tail(tsdata, 394)
+```
+
+split: 90-10
+```{r}
+train3 <- head(tsdata, 1772)
+test3 <- tail(tsdata, 197)
+```
+
+We implement the necessary functions to perform our benchmarks
+```{r}
+#Naive
+Naive <- function(x, h, type){
+  frcst <- rep(tail(x,1), h)
+  if (type=="seasonal"){
+    frcst <- head(rep(as.numeric(tail(x,7)), h), h) 
+  }
+  return(frcst)
+}
+
+
+#sNaive
+sNaive <- function(x, h){
+  frcst <- head(rep(as.numeric(tail(x,7)), h), h) 
+  return(frcst)
+}
+
+
+#ES
+ES <- function(a, x, h, job){
+  y <- c()  
+  y[1] <- x[1] #initialization
+  
+  for (t in 1:(length(x))){
+    y[t+1] <- a*x[t]+(1-a)*y[t]
+  }
+  
+  fitted <- head(y,(length(y)-1))
+  forecast <- rep(tail(y,1),h)
+  if (job=="train"){
+    return(mean((fitted - x)^2))
+  }else if (job=="fit"){
+    return(fitted)
+  }else{
+    return(list(fitted=fitted,mean=forecast))
+  }
+}
+
+
+#MA
+MA <- function(x, h){
+  mse <- c()
+  for (k in 2:14){
+    y <- rep(NA, k)
+    for (i in (k+1):length(x)){
+      y <- c(y, mean(x[(i-k):(i-1)]))
+    }
+    mse <- c(mse, mean((y-x)^2, na.rm = T))
+  }
+  k <- which.min(mse)+1
+  forecast <- rep(mean(as.numeric(tail(x, k))), h)
+  return(forecast)
+}
+```
+
+For each product, we compute a series of key statistics to assess the accuracy of the forecast methods. The choice of the best method is based on the RMSSE statistics.
+
+###Split1
+
+Let's analyze the forecast for the Hobbies products
+[Store 1 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Hobbies_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Hobbies_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Hobbies_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Hobbies_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Hobbies_CA_1,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Hobbies_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Hobbies_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Hobbies_CA_1, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Hobbies_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Hobbies_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Hobbies_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Hobb_CA1_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+[Store 2 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Hobbies_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Hobbies_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Hobbies_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Hobbies_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Hobbies_CA_2,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Hobbies_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Hobbies_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Hobbies_CA_2, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Hobbies_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Hobbies_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Hobbies_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Hobb_CA2_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate methods is ES.
+
+
+[Store 3 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Hobbies_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Hobbies_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Hobbies_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Hobbies_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Hobbies_CA_3,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Hobbies_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Hobbies_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Hobbies_CA_3, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Hobbies_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Hobbies_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Hobbies_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Hobb_CA3_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 1 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Household_1_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Household_1_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Household_1_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Household_1_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Household_1_CA_1,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Household_1_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Household_1_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Household_1_CA_1, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Household_1_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Household_1_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Household_1_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA1_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 2 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Household_1_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Household_1_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Household_1_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Household_1_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Household_1_CA_2,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Household_1_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Household_1_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Household_1_CA_2, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Household_1_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Household_1_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Household_1_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA2_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 3 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Household_1_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Household_1_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Household_1_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Household_1_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Household_1_CA_3,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Household_1_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Household_1_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Household_1_CA_3, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Household_1_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Household_1_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Household_1_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA3_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ARIMA.
+
+
+Household_2 products
+[Store 1 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Household_2_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Household_2_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Household_2_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Household_2_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Household_2_CA_1,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Household_2_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Household_2_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Household_2_CA_1, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Household_2_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Household_2_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Household_2_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House2_CA1_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_2 products
+[Store 2 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Household_2_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Household_2_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Household_2_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Household_2_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Household_2_CA_2,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Household_2_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Household_2_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Household_2_CA_2, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Household_2_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Household_2_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Household_2_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_House2_CA2_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_2 products
+[Store 3 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Household_2_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Household_2_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Household_2_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Household_2_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Household_2_CA_3,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Household_2_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Household_2_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Household_2_CA_3, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Household_2_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Household_2_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Household_2_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House2_CA3_Sp1 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Foods_1 products
+[Store 1 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_1_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_1_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_1_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_1_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_1_CA_1,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_1_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_1_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_1_CA_1, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_1_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_1_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_1_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA1_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is SARIMAX.
+
+
+Foods_1 products
+[Store 2 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_1_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_1_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_1_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_1_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_1_CA_2,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_1_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_1_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_1_CA_2, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_1_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_1_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_1_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA2_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is Naive.
+
+
+Foods_1 products
+[Store 3 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_1_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_1_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_1_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_1_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_1_CA_3,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_1_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_1_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_1_CA_3, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_1_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_1_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_1_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA3_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is SARIMAX.
+
+
+Foods_2 products
+[Store 1 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_2_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_2_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_2_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_2_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_2_CA_1,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_2_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_2_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_2_CA_1, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_2_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_2_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_2_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods2_CA1_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is ARIMA.
+
+
+Foods_2 products
+[Store 2 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_2_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_2_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_2_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_2_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_2_CA_2,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_2_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_2_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_2_CA_2, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_2_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_2_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_2_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Foods2_CA2_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method are ES.
+
+
+Foods_2 products
+[Store 3 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_2_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_2_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_2_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_2_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_2_CA_3,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_2_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_2_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_2_CA_3, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_2_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_2_CA_3)),h=28)$mean))
+
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_2_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods2_CA3_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is Holt-Winters.
+
+
+Foods_3 products
+[Store 1 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_3_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_3_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_3_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_3_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_3_CA_1,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_3_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_3_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_3_CA_1, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_3_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_3_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_3_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA1_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is ARIMA.
+
+
+Foods_3 products
+[Store 2 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_3_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_3_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_3_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_3_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_3_CA_2,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_3_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_3_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_3_CA_2, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_3_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_3_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_3_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA2_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Foods_3 products
+[Store 3 - Train Split 1]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train1$Foods_3_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train1$Foods_3_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train1$Foods_3_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train1$Foods_3_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train1$Foods_3_CA_3,h=28, xreg =tstemp1$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train1$Foods_3_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train1$Foods_3_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train1$Foods_3_CA_3, xreg =tstemp1$Air.min, seasonal = TRUE),xreg =tstemp1$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train1$Foods_3_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train1$Foods_3_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test1$Foods_3_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA3_Sp1 = Methods
+df_res
+```
+According to the results, the most accurate method is SARIMA.
+
+
+###SPLIT 2
+
+Let's analyze the forecast for the Hobbies products
+[Store 1 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Hobbies_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Hobbies_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Hobbies_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Hobbies_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Hobbies_CA_1,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Hobbies_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Hobbies_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Hobbies_CA_1, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Hobbies_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Hobbies_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Hobbies_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Hobb_CA1_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+[Store 2 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Hobbies_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Hobbies_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Hobbies_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Hobbies_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Hobbies_CA_2,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Hobbies_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Hobbies_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Hobbies_CA_2, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Hobbies_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Hobbies_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Hobbies_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Hobb_CA2_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate methods is ES.
+
+
+[Store 3 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Hobbies_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Hobbies_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Hobbies_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Hobbies_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Hobbies_CA_3,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Hobbies_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Hobbies_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Hobbies_CA_3, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Hobbies_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Hobbies_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Hobbies_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Hobb_CA3_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 1 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Household_1_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Household_1_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Household_1_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Household_1_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Household_1_CA_1,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Household_1_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Household_1_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Household_1_CA_1, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Household_1_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Household_1_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Household_1_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA1_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 2 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Household_1_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Household_1_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Household_1_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Household_1_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Household_1_CA_2,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Household_1_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Household_1_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Household_1_CA_2, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Household_1_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Household_1_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Household_1_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA2_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 3 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Household_1_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Household_1_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Household_1_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Household_1_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Household_1_CA_3,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Household_1_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Household_1_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Household_1_CA_3, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Household_1_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Household_1_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Household_1_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA3_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_2 products
+[Store 1 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Household_2_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Household_2_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Household_2_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Household_2_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Household_2_CA_1,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Household_2_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Household_2_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Household_2_CA_1, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Household_2_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Household_2_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Household_2_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House2_CA1_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is State-Space Model.
+
+
+Household_2 products
+[Store 2 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Household_2_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Household_2_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Household_2_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Household_2_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Household_2_CA_2,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Household_2_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Household_2_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Household_2_CA_2, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Household_2_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Household_2_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Household_2_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_House2_CA2_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_2 products
+[Store 3 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Household_2_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Household_2_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Household_2_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Household_2_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Household_2_CA_3,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Household_2_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Household_2_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Household_2_CA_3, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Household_2_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Household_2_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Household_2_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House2_CA3_Sp2 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ARIMA.
+
+
+Foods_1 products
+[Store 1 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_1_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_1_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_1_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_1_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_1_CA_1,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_1_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_1_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_1_CA_1, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_1_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_1_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_1_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA1_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Foods_1 products
+[Store 2 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_1_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_1_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_1_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_1_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_1_CA_2,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_1_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_1_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_1_CA_2, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_1_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_1_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_1_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA2_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is Naive.
+
+
+Foods_1 products
+[Store 3 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_1_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_1_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_1_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_1_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_1_CA_3,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_1_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_1_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_1_CA_3, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_1_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_1_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_1_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA3_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Foods_2 products
+[Store 1 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_2_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_2_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_2_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_2_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_2_CA_1,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_2_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_2_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_2_CA_1, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_2_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_2_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_2_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods2_CA1_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is sNaive.
+
+
+Foods_2 products
+[Store 2 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_2_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_2_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_2_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_2_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_2_CA_2,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_2_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_2_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_2_CA_2, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_2_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_2_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_2_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Foods2_CA2_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method are ARIMA.
+
+
+Foods_2 products
+[Store 3 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_2_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_2_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_2_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_2_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_2_CA_3,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_2_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_2_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_2_CA_3, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_2_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_2_CA_3)),h=28)$mean))
+
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_2_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods2_CA3_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is SARIMA.
+
+
+Foods_3 products
+[Store 1 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_3_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_3_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_3_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_3_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_3_CA_1,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_3_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_3_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_3_CA_1, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_3_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_3_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_3_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA1_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is ARIMA.
+
+
+Foods_3 products
+[Store 2 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_3_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_3_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_3_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_3_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_3_CA_2,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_3_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_3_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_3_CA_2, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_3_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_3_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_3_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA2_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Foods_3 products
+[Store 3 - Train Split 2]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train2$Foods_3_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train2$Foods_3_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train2$Foods_3_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train2$Foods_3_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train2$Foods_3_CA_3,h=28, xreg =tstemp2$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train2$Foods_3_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train2$Foods_3_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train2$Foods_3_CA_3, xreg =tstemp2$Air.min, seasonal = TRUE),xreg =tstemp2$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train2$Foods_3_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train2$Foods_3_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test2$Foods_3_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA3_Sp2 = Methods
+df_res
+```
+According to the results, the most accurate method is SARIMA.
+
+
+###SPLIT 3
+
+Let's analyze the forecast for the Hobbies products
+[Store 1 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Hobbies_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Hobbies_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Hobbies_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Hobbies_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Hobbies_CA_1,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Hobbies_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Hobbies_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Hobbies_CA_1, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Hobbies_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Hobbies_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Hobbies_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Hobb_CA1_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+[Store 2 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Hobbies_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Hobbies_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Hobbies_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Hobbies_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Hobbies_CA_2,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Hobbies_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Hobbies_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Hobbies_CA_2, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Hobbies_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Hobbies_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Hobbies_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Hobb_CA2_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate methods is ES.
+
+
+[Store 3 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Hobbies_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Hobbies_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Hobbies_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Hobbies_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Hobbies_CA_3,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Hobbies_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Hobbies_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Hobbies_CA_3, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Hobbies_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Hobbies_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Hobbies_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Hobb_CA3_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 1 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Household_1_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Household_1_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Household_1_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Household_1_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Household_1_CA_1,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Household_1_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Household_1_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Household_1_CA_1, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Household_1_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Household_1_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Household_1_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA1_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 2 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Household_1_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Household_1_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Household_1_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Household_1_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Household_1_CA_2,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Household_1_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Household_1_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Household_1_CA_2, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Household_1_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Household_1_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Household_1_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA2_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_1 products
+[Store 3 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Household_1_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Household_1_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Household_1_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Household_1_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Household_1_CA_3,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Household_1_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Household_1_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Household_1_CA_3, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Household_1_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Household_1_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Household_1_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House1_CA3_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_2 products
+[Store 1 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Household_2_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Household_2_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Household_2_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Household_2_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Household_2_CA_1,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Household_2_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Household_2_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Household_2_CA_1, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Household_2_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Household_2_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Household_2_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House2_CA1_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is State-Space Model.
+
+
+Household_2 products
+[Store 2 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Household_2_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Household_2_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Household_2_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Household_2_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Household_2_CA_2,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Household_2_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Household_2_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Household_2_CA_2, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Household_2_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Household_2_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Household_2_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_House2_CA2_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Household_2 products
+[Store 3 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Household_2_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Household_2_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Household_2_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Household_2_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Household_2_CA_3,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Household_2_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Household_2_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Household_2_CA_3, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Household_2_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Household_2_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Household_2_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_House2_CA3_Sp3 = Methods
+
+df_res
+```
+According to the results, the most accurate method is ES.
+
+
+Foods_1 products
+[Store 1 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_1_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_1_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_1_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_1_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_1_CA_1,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_1_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_1_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_1_CA_1, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_1_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_1_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_1_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA1_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is State-Space Model.
+
+
+Foods_1 products
+[Store 2 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_1_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_1_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_1_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_1_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_1_CA_2,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_1_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_1_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_1_CA_2, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_1_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_1_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_1_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA2_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is ARIMA.
+
+
+Foods_1 products
+[Store 3 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_1_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_1_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_1_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_1_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_1_CA_3,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_1_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_1_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_1_CA_3, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_1_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_1_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_1_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods1_CA3_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is SARIMA.
+
+
+Foods_2 products
+[Store 1 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_2_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_2_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_2_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_2_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_2_CA_1,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_2_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_2_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_2_CA_1, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_2_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_2_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_2_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods2_CA1_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is sNaive.
+
+
+Foods_2 products
+[Store 2 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_2_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_2_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_2_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_2_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_2_CA_2,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_2_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_2_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_2_CA_2, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_2_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_2_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_2_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+
+Methods_Foods2_CA2_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method are State-Space Model.
+
+
+Foods_2 products
+[Store 3 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_2_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_2_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_2_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_2_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_2_CA_3,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_2_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_2_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_2_CA_3, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_2_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_2_CA_3)),h=28)$mean))
+
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_2_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods2_CA3_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is State-Sapce Model.
+
+
+Foods_3 products
+[Store 1 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_3_CA_1, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_3_CA_1, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_3_CA_1, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_3_CA_1, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_3_CA_1,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_3_CA_1, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_3_CA_1,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_3_CA_1, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_3_CA_1, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_3_CA_1)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_3_CA_1, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA1_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is State-Space Model.
+
+
+Foods_3 products
+[Store 2 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_3_CA_2, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_3_CA_2, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_3_CA_2, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_3_CA_2, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_3_CA_2,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_3_CA_2, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_3_CA_2,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_3_CA_2, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_3_CA_2, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_3_CA_2)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_3_CA_2, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA2_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is sNaive.
+
+
+Foods_3 products
+[Store 3 - Train Split 3]
+```{r}
+Methods <- NULL
+Methods <- cbind(Methods, Naive(train3$Foods_3_CA_3, 28, type="simple"))
+Methods <- cbind(Methods, Naive(train3$Foods_3_CA_3, 28, type="seasonal"))
+Methods <- cbind(Methods, MA(train3$Foods_3_CA_3, 28))
+Methods <- cbind(Methods, as.numeric(es(ts(train3$Foods_3_CA_3, frequency = 7), h=28)$forecast))
+Methods <- cbind(Methods, as.data.frame(ses(train3$Foods_3_CA_3,h=28, xreg =tstemp3$Air.min))$`Point Forecast`)
+Methods <- cbind(Methods, forecast::forecast(auto.arima(ts(train3$Foods_3_CA_3, frequency = 7)), h=28)$mean)
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(auto.arima(train3$Foods_3_CA_3,D=1,seasonal=TRUE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, head(as.data.frame(forecast::forecast(auto.arima(train3$Foods_3_CA_3, xreg =tstemp3$Air.min, seasonal = TRUE),xreg =tstemp3$Air.min,h=28))$`Point Forecast`, 28))
+Methods <- cbind(Methods, as.data.frame(forecast::forecast(HoltWinters(train3$Foods_3_CA_3, gamma = FALSE), h=28))$`Point Forecast`)
+Methods <- cbind(Methods, as.numeric(forecast(tbats(ts(train3$Foods_3_CA_3)),h=28)$mean))
+
+colnames(Methods) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+
+actuals = as.numeric(head(test3$Foods_3_CA_3, 28))
+
+# initialization of an empty dataframe to store the accuracy results
+mat = matrix(ncol = 10, nrow =5)
+df_res = data.frame(mat)
+
+names(df_res) = c("Naive", "sNaive", "MA", "ES", "ESX", "ARIMA", "SARIMA", "SARIMAX", "Holt-Winters", "State-Space Model")
+rownames(df_res) <- c("MAE","MAPE", "MSE", "RMSE", "RMSSE")
+
+for (i in 1:length(colnames(Methods))){
+  df_res[1,i] = mae(actuals, Methods[,i])
+  df_res[2,i] = mape(actuals, Methods[,i])
+  df_res[3,i] = mse(actuals, Methods[,i])
+  df_res[4,i] = rmse(actuals, Methods[,i])
+  df_res[5,i] = RMSSE(actuals, Methods[,i], .5)
+}
+
+Methods_Foods3_CA3_Sp3 = Methods
+df_res
+```
+According to the results, the most accurate method is sNaive.
